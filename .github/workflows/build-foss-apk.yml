@@ -1,0 +1,165 @@
+# CAPod One UI Edition: builds the FOSS debug APK with the Gradle Wrapper and publishes it as a
+# downloadable artifact. No Android Studio needed.
+#
+# Run it from the repository's "Actions" tab ("Build FOSS APK" > "Run workflow"), or just push to main.
+name: Build FOSS APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-foss-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Must match compileSdk in buildSrc/src/main/java/ProjectConfig.kt.
+  ANDROID_PLATFORM: android-36
+
+jobs:
+  build-apk:
+    name: Build fossDebug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@0723195856401067f7a2779048b490ace7a47d7c #v5.0.2
+
+      # JDK 17 (Temurin), executable gradlew and the Gradle caches: same setup the project's own CI uses.
+      - name: Set up JDK and Gradle caches
+        uses: ./.github/actions/common-setup
+
+      - name: Set up Android SDK
+        run: |
+          set -euo pipefail
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$sdk_root" ] || [ ! -d "$sdk_root" ]; then
+            echo "::error::No Android SDK found on this runner (ANDROID_HOME is not set)."
+            exit 1
+          fi
+          sdkmanager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkmanager" ]; then
+            sdkmanager="$(find "$sdk_root/cmdline-tools" -name sdkmanager -type f | sort | tail -n 1)"
+          fi
+          if [ -z "$sdkmanager" ] || [ ! -x "$sdkmanager" ]; then
+            echo "::error::sdkmanager not found under $sdk_root/cmdline-tools."
+            exit 1
+          fi
+          # `yes` exits with SIGPIPE once sdkmanager is done, which is expected.
+          (yes || true) | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" --install "platforms;${ANDROID_PLATFORM}" "platform-tools"
+          echo "Android SDK: $sdk_root"
+          ls "$sdk_root/platforms"
+
+      # The repository's gradle.properties asks for an 8 GB heap, more than a standard runner of a
+      # private repository has. User-level properties take precedence over the project's.
+      - name: Configure Gradle for the runner
+        run: |
+          mkdir -p ~/.gradle
+          cat >> ~/.gradle/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+          org.gradle.daemon=false
+          org.gradle.workers.max=2
+          kotlin.compiler.execution.strategy=in-process
+          EOF
+          cat ~/.gradle/gradle.properties
+
+      - name: Check that the fossDebug variant exists
+        run: bash .github/scripts/run-gradle.sh "Check fossDebug variant" help --task :app:assembleFossDebug
+
+      # Verification: compiling on its own first means source errors are reported by themselves,
+      # before packaging.
+      - name: Compile sources (Kotlin, KSP, Hilt)
+        run: bash .github/scripts/run-gradle.sh "Compile fossDebug sources" :app:compileFossDebugKotlin
+
+      - name: Build APK
+        run: bash .github/scripts/run-gradle.sh "Assemble fossDebug APK" :app:assembleFossDebug
+
+      - name: Describe APK
+        run: |
+          set -euo pipefail
+          apk_dir="app/build/outputs/apk/foss/debug"
+          ls -la "$apk_dir"
+          {
+            echo "### 📦 APK"
+            echo
+            echo '```'
+            (cd "$apk_dir" && sha256sum ./*.apk && du -h ./*.apk)
+            echo '```'
+            echo
+            echo "Download it from the **Artifacts** section at the bottom of this run's summary page (\`capod-oneui-fossDebug-apk\`)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        with:
+          name: capod-oneui-fossDebug-apk
+          path: app/build/outputs/apk/foss/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        with:
+          name: build-logs
+          path: |
+            ${{ runner.temp }}/gradle-logs
+            app/build/reports
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # The project's own unit tests for the FOSS flavor. Reported, but they do not block the APK:
+  # this fork changes defaults that some upstream tests may assert on.
+  unit-tests:
+    name: Unit tests (fossDebug, informational)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd #v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK and Gradle caches
+        uses: ./.github/actions/common-setup
+
+      - name: Configure Gradle for the runner
+        run: |
+          mkdir -p ~/.gradle
+          cat >> ~/.gradle/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+          org.gradle.daemon=false
+          org.gradle.workers.max=2
+          kotlin.compiler.execution.strategy=in-process
+          EOF
+
+      - name: Run unit tests
+        run: bash .github/scripts/run-gradle.sh "Unit tests fossDebug" :app:testFossDebugUnitTest
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a #v7.0.1
+        with:
+          name: unit-test-reports
+          path: |
+            app/build/reports/tests
+            ${{ runner.temp }}/gradle-logs
+          if-no-files-found: ignore
+          retention-days: 14
