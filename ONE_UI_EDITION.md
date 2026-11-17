@@ -9,10 +9,11 @@ para un Samsung Galaxy S25 Ultra con AirPods Pro 2.
 > GPLv3 (archivo `LICENSE`). Si compartes la APK con alguien, tienes que ofrecerle también este
 > código fuente.
 
-**Estado: el código de esta edición todavía no se ha compilado.** El entorno donde se escribió no
-tiene acceso a los servidores de Gradle, Google Maven ni Maven Central, así que no se pudo generar
-la APK ahí. La primera ejecución del workflow de GitHub Actions es la primera prueba real; hasta
-que termine en verde no se puede afirmar que la aplicación funcione.
+**Estado: compila y pasa las pruebas unitarias; falta probarla en el teléfono.** La primera
+ejecución de GitHub Actions (17 de noviembre de 2026) compiló `assembleFossDebug`, publicó la APK y
+pasó las pruebas unitarias de la variante FOSS y las comprobaciones originales de CAPod
+(`code-checks.yml`). Nada de esta edición se ha probado todavía en un Galaxy S25 Ultra con unos
+AirPods reales.
 
 ## Qué cambia respecto a CAPod original
 
@@ -121,9 +122,8 @@ ejecutan en un trabajo aparte que informa pero no bloquea la APK.
 
 **Los workflows originales de CAPod siguen en el repositorio, sin cambios, y también se
 ejecutarán** al subir a `main`: `code-checks.yml` (compila además la variante de Google Play y
-ejecuta todas las pruebas) y `emulator.yml` (pruebas en emulador). Es probable que alguno falle en
-este fork, porque varias pruebas originales esperan el comportamiento «gratuito» que aquí cambia.
-Eso no afecta a la APK de **Build FOSS APK**. Si no los quieres, desactívalos en Actions →
+ejecuta todas las pruebas) y `emulator.yml` (pruebas en emulador). `pages.yml` falla si el repositorio no tiene GitHub Pages activado. Nada de eso afecta a la APK de
+**Build FOSS APK**. Si no los quieres, desactívalos en Actions →
 (workflow) → «…» → «Disable workflow».
 
 Cada ejecución firma la APK de depuración con una clave nueva. Para instalar una compilación
@@ -156,24 +156,16 @@ posterior encima de otra tendrás que desinstalar antes la anterior.
 
 ## Verificado y pendiente
 
-Verificado sin compilar:
+Verificado en GitHub Actions:
 
-- [x] La variante `foss` y la tarea `assembleFossDebug` existen en `app/build.gradle.kts`.
-- [x] Las imágenes `device_airpods_pro2_left/right/case.png` existen en mdpi…xxxhdpi y el modelo
-      AirPods Pro 2 ya las usa; no se ha añadido ni sustituido ninguna imagen.
-- [x] Sintaxis Kotlin de todos los archivos nuevos y modificados (analizador de gramática, no el
-      compilador).
-- [x] Todos los `import` del proyecto en esos archivos apuntan a declaraciones que existen, y todas
-      las cadenas `R.string` que usan están definidas.
-- [x] Los XML de cadenas modificados son válidos y no tienen nombres duplicados.
-- [x] El YAML del workflow es válido y el script de informe pasa la comprobación de sintaxis de bash.
+- [x] El proyecto compila (`assembleFossDebug`) y la APK se publica como artefacto.
+- [x] Las pruebas unitarias de la variante FOSS pasan.
+- [x] Las comprobaciones originales de CAPod (`code-checks.yml`: lint, ambas variantes, pruebas) pasan.
+- [x] Las imágenes `device_airpods_pro2_left/right/case.png` son las originales del repositorio.
 - [x] La licencia es GPLv3 y no se ha tocado el código de facturación.
 
-Pendiente (requiere la compilación y el teléfono):
+Pendiente (requiere el teléfono y los AirPods):
 
-- [ ] **Que el proyecto compile.** Ningún archivo Kotlin de esta edición ha pasado por el
-      compilador: tipos, Hilt/KSP y Compose están sin comprobar.
-- [ ] Que las pruebas unitarias originales sigan pasando.
 - [ ] Aspecto real de la tarjeta One UI en el S25 Ultra (tamaños, contraste, animación).
 - [ ] Que la ventana aparezca al abrir el estuche y desaparezca al cerrarlo en el S25 Ultra.
 - [ ] Indicador de carga de cada auricular y del estuche.
